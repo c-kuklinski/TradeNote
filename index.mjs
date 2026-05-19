@@ -12,8 +12,16 @@ import { useImportTrades, useGetExistingTradesArray, useUploadTrades } from './s
 import { currentUser, uploadMfePrices } from './src/stores/globals.js';
 import { useGetTimeZone } from './src/utils/utils.js';
 import Stripe from 'stripe';
+//import dotenv from 'dotenv';
 
 
+//dotenv.config();
+console.log("\nINITIALIZING ENV VARIABLES")
+process.env.APP_ID = process.env.APP_ID || '123456';
+process.env.MASTER_KEY = process.env.MASTER_KEY || '123456';
+process.env.TRADENOTE_PORT = process.env.TRADENOTE_PORT || '8080';
+process.env.MONGO_URI = process.env.MONGO_URI || 'mongodb://tradenote:tradenote@localhost:27017/tradenote?authSource=admin';
+process.env.NODE_ENV = process.env.NODE_ENV || 'dev';
 /* STRIPE VAR */
 let stripeSk //secret key
 let stripePk // public key
@@ -219,14 +227,14 @@ const setupApiRoutes = (app) => {
 
         if (!process.env.STRIPE_SK || process.env.UPSERT_SCHEMA) {
             console.log("\nAPI : post update schema")
-
+            console.log("\n TESTMONGODB NOW")
             let rawdata = fs.readFileSync('requiredClasses.json');
             let schemasJson = JSON.parse(rawdata);
-            //console.log("schemasJson "+JSON.stringify(schemasJson))
+            console.log("schemasJson "+JSON.stringify(schemasJson))
 
             let existingSchema = []
             const getExistingSchema = await ParseNode.Schema.all()
-            //console.log(" -> Get existing schema " + JSON.stringify(getExistingSchema))
+            console.log(" -> Get existing schema " + JSON.stringify(getExistingSchema))
 
             /* 1- Rename legacy names in mongoDB */
             const renameMongoDb = (param1, param2) => {
@@ -561,7 +569,7 @@ const startIndex = async () => {
     if (process.env.PARSE_DASHBOARD) app.use('/parseDashboard', parseDashboard)
 
     //INIT
-    //console.log("\nInitializing ParseNode")
+    console.log("\nInitializing ParseNode on port: " + port)
     ParseNode.initialize(process.env.APP_ID)
     ParseNode.serverURL = "http://localhost:" + port + "/parse"
     ParseNode.masterKey = process.env.MASTER_KEY
