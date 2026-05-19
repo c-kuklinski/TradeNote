@@ -10,6 +10,7 @@ import axios from 'axios'
             console.log("\nGETTING REGISTER PAGE")
             axios.post('/api/registerPage')
                 .then((response) => {
+                    //DO NOT USE PRODUCTIVE - FOR TESTING ONLY - INSTANT RESETS
                     //console.log(" response "+JSON.stringify(response))
                     //localStorage.setItem('parse_app_id', response.data)
                     //console.log("  --> App id in localstorage " + localStorage.getItem('parse_app_id'))
@@ -18,6 +19,7 @@ import axios from 'axios'
                 })
                 .catch((error) => {
                     console.log(" -> Error getting register page " + error)
+                    //console.log(" -> Response Data: " + response.data)
                     reject(error)
                 });
 

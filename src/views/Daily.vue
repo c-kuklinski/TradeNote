@@ -576,6 +576,50 @@ const tradeNoteChange = (param) => {
 /**************
  * SCREENSHOTS
  ***************/
+const existTradeScreenshots = (param1,param2) => {
+    let exists = false
+    for (let index = 0; index < param1.length; index++) {
+        const el1 = param1[index];
+        for (let index2 = 0; index2 < screenshots.length; index2++) {
+            const el2 = screenshots[index2]
+            if (el1.id.split("_")[0] == el2.name.split("_")[0] && index == param2) {
+                exists = true
+                break
+            }
+        }
+    }
+    return exists
+}
+
+const filteredTradeScreenshots = (param1,param2) => {
+    //console.log(" filteredScreenshots")
+    //if (param1) {
+    //    console.log("param1"+JSON.stringify(param1))
+    //}
+    let screenshotArray = []
+    let screenshotsArray = []
+    screenshotsArray = screenshots
+    
+    for (let index = 0; index < param1.length; index++) {
+        const el1 = param1[index];
+        for (let index2 = 0; index2 < screenshotsArray.length; index2++) {
+            const el2 = screenshotsArray[index2]
+            if(el2.name)
+            {
+                if(el1.id.split("_")[0] == el2.name.split("_")[0]&& index==param2 && (screenshotArray.findIndex(obj => obj == el2) == -1)){
+                    //console.log("push screenshot"+el1.id +"::" + el2.name)
+                    screenshotArray.push(el2)
+                }
+            } else
+            {
+                //console.log("[DEBUG]: screenshotData el2 "+JSON.stringify(el2.name))
+            }
+        }
+    }
+    console.log(" -> Visualize trade screenshots" )
+    return screenshotArray
+}
+
 const filteredScreenshots = (param1, param2) => {
     //console.log(" param1 dateUnix " + JSON.stringify(param1.dateUnix))
     //console.log(" filteredScreenshots")
@@ -583,9 +627,9 @@ const filteredScreenshots = (param1, param2) => {
 
         console.log(" param1 ")
     }
-    */if (param2) {
+    if (param2) {
         console.log(" param2 ")
-    }
+    }*/
     let screenshotArray = []
     //console.log(" screenshotsInfos "+JSON.stringify(screenshotsInfos))
     for (let index = 0; index < param1.trades.length; index++) {
@@ -1364,6 +1408,26 @@ function getOHLC(date, symbol, type) {
                                         v-bind:value="tradeNote"
                                         @input="tradeNoteChange($event.target.value)"></textarea>
                                 </div>
+                                <!-- Third line -->
+
+                                <!-- Single screenshot from database -->
+                                <div class="col-12 mt-2" v-show="!spinnerSetups">
+                                    <!-- Screenshot section -->
+                                    <div class="txt-small">
+                                        <!-- Visualisation of screenshots -->
+                                        <div v-if="existTradeScreenshots(filteredTrades[itemTradeIndex].trades,tradeIndex)">
+                                            <div v-for="itemScreenshot in filteredTradeScreenshots(filteredTrades[itemTradeIndex].trades,tradeIndex)" 
+                                                :key="itemScreenshot.id" 
+                                                class="mb-2">
+                                                <Screenshot 
+                                                :screenshot-data="itemScreenshot" 
+                                                show-title
+                                                source="dailyTab" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
 
                                 <!-- Forth line -->
                                 <div class="col-12 mt-3" v-show="!spinnerSetups">
