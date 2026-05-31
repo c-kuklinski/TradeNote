@@ -525,34 +525,62 @@ async function createExecutions() {
 export const useCreateOHLCV = (param, param2) => {
     //console.log(" param "+JSON.stringify(param))
     return new Promise(async (resolve, reject) => {
-        let papaParse = Papa.parse(param, { header: true })
+        let papaParse = Papa.parse(param, { header: true, skipEmptyLines: true, delimiter: ';' })
         let tempArray = papaParse.data
-        //console.log(' tempArray ' + JSON.stringify(tempArray))
-        for (let index = 0; index < tempArray.length; index++) {
-            const element = tempArray[index];
+
+        const parseCsvRow = (element) => {
             if (element.ts_event) {
-
-                //console.log(" ts_event " + element.ts_event)
-                let NYTime = dayjs.tz(element.ts_event, "UTC").tz(timeZoneTrade.value).unix() // telling it's UTC time and converting to trade TZ
-
-                let temp2 = {}
-                temp2.v = Number(element.volume)
-                temp2.o = Number(element.open)
-                temp2.c = Number(element.close)
-                temp2.h = Number(element.high)
-                temp2.l = Number(element.low)
-                temp2.t = NYTime * 1000
-                param2.ohlcv.push(temp2)
-
+                return {
+                    t: dayjs.tz(element.ts_event, "UTC").tz(timeZoneTrade.value).unix() * 1000,
+                    v: Number(element.volume || 1),
+                    o: Number(element.open),
+                    c: Number(element.close),
+                    h: Number(element.high),
+                    l: Number(element.low)
+                }
             }
-
-            if ((index + 1) === tempArray.length) {
-                ohlcv.push(param2) // this is used for when adding trades
-                //console.log(" -> ohlcv " + JSON.stringify(ohlcv))
-                resolve(param2) // resolving only param2, used for daily.vue (because I just want to get back the created OHLC, not the full / existing ohlcv array)
-            }
-
+            return null
         }
+
+        const parseLegacyRow = (line) => {
+            if (!line || !line.trim()) return null
+            const cols = line.split(';').map((value) => value.trim())
+            if (cols.length < 5) return null
+            const dateValue = cols[0]
+            const parsedDate = dayjs.tz(dateValue, ["YYYY-MM-DD HH:mm:ss", "YYYY-DD-MM HH:mm:ss", "YYYY/MM/DD HH:mm:ss"], "UTC")
+            if (!parsedDate.isValid()) return null
+            return {
+                t: parsedDate.tz(timeZoneTrade.value).unix() * 1000,
+                v: Number(cols[5] || 1),
+                o: Number(cols[1]),
+                c: Number(cols[4]),
+                h: Number(cols[2]),
+                l: Number(cols[3])
+            }
+        }
+
+        let rows = []
+        if (tempArray.length > 0 && (tempArray[0].ts_event || tempArray[0].open || tempArray[0].close || tempArray[0].high || tempArray[0].low)) {
+            for (let index = 0; index < tempArray.length; index++) {
+                const element = tempArray[index]
+                const temp2 = parseCsvRow(element)
+                if (temp2) rows.push(temp2)
+            }
+        } else {
+            const lines = param.split(/\r?\n/).filter((line) => line.trim())
+            for (let index = 0; index < lines.length; index++) {
+                const parsed = parseLegacyRow(lines[index])
+                if (parsed) rows.push(parsed)
+            }
+        }
+
+        for (let i = 0; i < rows.length; i++) {
+            param2.ohlcv.push(rows[i])
+        }
+
+        ohlcv.push(param2) // this is used for when adding trades
+        //console.log(" -> ohlcv " + JSON.stringify(ohlcv))
+        resolve(param2) // resolving only param2, used for daily.vue (because I just want to get back the created OHLC, not the full / existing ohlcv array)
     })
 }
 

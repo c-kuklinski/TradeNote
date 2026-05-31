@@ -222,6 +222,23 @@ const setupApiRoutes = (app) => {
                 // always executed
             })
     });
+    app.get('/api/local-ohlc/:filename', async (req, res) => {
+        try {
+            const safeFilename = path.basename(req.params.filename)
+            const dataDir = path.resolve(process.cwd(), 'data')
+            const filePath = path.resolve(dataDir, safeFilename)
+            if (!filePath.startsWith(dataDir)) {
+                return res.status(400).send('Invalid filename')
+            }
+            if (!fs.existsSync(filePath)) {
+                return res.status(404).send('File not found')
+            }
+            const content = fs.readFileSync(filePath, 'utf-8')
+            res.type('text/csv').send(content)
+        } catch (error) {
+            res.status(500).send({ error: error.message })
+        }
+    });
 
     app.post("/api/updateSchemas", async (req, res) => {
 
@@ -464,7 +481,7 @@ const startIndex = async () => {
     const startServer = async () => {
         console.log("\nSTARTING NODEJS SERVER")
         return new Promise(async (resolve, reject) => {
-            server = app.listen(port, function () {
+            server = app.listen(port, '0.0.0.0', function () {
                 console.log(' -> TradeNote server started on http://localhost:' + port)
             });
             resolve(server)
@@ -478,7 +495,7 @@ const startIndex = async () => {
             if (process.env.NODE_ENV == 'dev') {
                 // Set up proxy for development environment
                 const proxy = new Proxy.createProxyServer({
-                    target: { host: 'localhost', port: PROXY_PORT },
+                    target: { host: '127.0.0.1', port: PROXY_PORT },
                 });
     
                 // Middleware to handle API routes first (do not pass to Vite)
@@ -500,7 +517,7 @@ const startIndex = async () => {
                 });
     
                 // Start Vite dev server
-                const vite = await Vite.createServer({ server: { port: PROXY_PORT } });
+                const vite = await Vite.createServer({ server: { port: PROXY_PORT, host: '0.0.0.0' } });
                 vite.listen();
                 console.log(" -> Running vite dev server");
                 resolve();
@@ -571,7 +588,7 @@ const startIndex = async () => {
     //INIT
     console.log("\nInitializing ParseNode on port: " + port)
     ParseNode.initialize(process.env.APP_ID)
-    ParseNode.serverURL = "http://localhost:" + port + "/parse"
+    ParseNode.serverURL = "http://127.0.0.1:" + port + "/parse"
     ParseNode.masterKey = process.env.MASTER_KEY
 
 }

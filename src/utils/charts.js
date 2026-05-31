@@ -994,7 +994,7 @@ export function useBarChart(param1) {
 
 
         }
-        var myChart = echarts.init(document.getElementById(param1));
+        var myChart = echarts.init(document.getElementById(param1)); //warning
         const option = {
             xAxis: {
                 type: 'category',
@@ -1463,7 +1463,7 @@ export function useBarChartNegative(param1) {
         };
 
         if (series.length > 0) {
-            var myChart = echarts.init(document.getElementById(param1));
+            var myChart = echarts.init(document.getElementById(param1));//warning
             myChart.setOption(option);
         }
         resolve()
@@ -1921,6 +1921,23 @@ export function useCandlestickChart(ohlcTimestamps, ohlcPrices, ohlcVolumes, tra
                                 return param.name + '<br>' + (param.data.coord || '');
                             }
                         }
+                    },
+                    markLine: {
+                        silent: true,
+                        symbol: ['none', 'none'],
+                        lineStyle: {
+                            color: '#FFD700',
+                            type: 'dashed',
+                            width: 1
+                        },
+                        label: {
+                            show: true,
+                            position: 'end',
+                            formatter: function (param) {
+                                return 'MFE ' + useXDecFormat(param.value, 2)
+                            }
+                        },
+                        data: []
                     }
                 },
             ]
@@ -1970,6 +1987,14 @@ export function useCandlestickChart(ohlcTimestamps, ohlcPrices, ohlcVolumes, tra
 
             option.dataZoom[0].endValue = useHourMinuteFormat(dataZoomEndUnix)
         }
+
+        if (trade.excursions && trade.excursions.mfePrice != null) {
+            option.series[0].markLine.data.push({
+                yAxis: trade.excursions.mfePrice,
+                name: 'MFE'
+            })
+        }
+
         candlestickChart.setOption(option);
         resolve()
     })
