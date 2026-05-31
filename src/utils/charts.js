@@ -1,4 +1,4 @@
-import { totals, amountCase, totalsByDate, pageId, selectedTimeFrame, groups, timeZoneTrade, selectedRatio, filteredTrades, selectedGrossNet, satisfactionArray, dailyChartZoom, barChartNegativeTagGroups } from "../stores/globals.js"
+import { totals, amountCase, totalsByDate, pageId, selectedTimeFrame, groups, timeZoneTrade, selectedRatio, filteredTrades, selectedGrossNet, satisfactionArray, dailyChartZoom, barChartNegativeTagGroups, executions } from "../stores/globals.js"
 import { useOneDecPercentFormat, useChartFormat, useThousandCurrencyFormat, useTwoDecCurrencyFormat, useTimeFormat, useHourMinuteFormat, useCapitalizeFirstLetter, useXDecCurrencyFormat, useXDecFormat } from "./utils.js"
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc.js'
@@ -28,6 +28,33 @@ const white60 = "hsla(0, 0%, 100%, 0.6)"
 const white38 = "hsla(0, 0%, 100%, 0.38)"
 const maxChartValues = 20
 
+function resolveTradeExecutions(trade) {
+    if (!trade || !Array.isArray(trade.executions) || trade.executions.length === 0) {
+        console.log('resolveTradeExecutions: no trade.executions', { trade, executionsKey: trade?.td || trade?.dateUnix || trade?.date })
+        return []
+    }
+
+    const dateKey = trade.td || trade.dateUnix || trade.date
+    console.log('resolveTradeExecutions: incoming trade.executions', {
+        tradeId: trade?.id || dateKey,
+        executionsType: typeof trade.executions[0],
+        executionsCount: trade.executions.length,
+        dateKey,
+        executionsByDateCount: dateKey && executions[dateKey] ? executions[dateKey].length : 0,
+        executionsByDate: dateKey && executions[dateKey] ? executions[dateKey] : undefined
+    })
+
+    if (typeof trade.executions[0] === 'object' && trade.executions[0] !== null) {
+        return trade.executions
+    }
+
+    if (dateKey && executions[dateKey] && Array.isArray(executions[dateKey])) {
+        return executions[dateKey].filter(exec => trade.executions.includes(exec.id))
+    }
+
+    console.log('resolveTradeExecutions: execution resolution failed', { tradeId: trade?.id || dateKey, dateKey, executions: trade.executions })
+    return []
+}
 
 export async function useECharts(param) {
     for (let index = 1; index <= 2; index++) {
@@ -1943,8 +1970,94 @@ export function useCandlestickChart(ohlcTimestamps, ohlcPrices, ohlcVolumes, tra
             ]
         };
 
-        if (dayjs.unix(trade.entryTime).tz(timeZoneTrade.value).isSame(dayjs(ohlcTimestamps[0]), 'day')) {
-            //console.log(" trade.entryPrice " + trade.entryPrice)
+        const executionObjects = resolveTradeExecutions(trade)
+        console.debug('useCandlestickChart executionObjects', {
+            tradeId: trade?.id || trade?.td || trade?.dateUnix || 'unknown',
+            executionObjectsLength: executionObjects.length,
+            executionObjects,
+            tradeExecutions: trade.executions,
+            dateKey: trade.td || trade.dateUnix || trade.date
+        })
+        const entryExecutions = []
+        const exitExecutions = []
+
+        executionObjects.forEach(execution => {
+            const execTime = execution.execTime || execution.time || execution.exec_time || execution.timestamp
+            if (!execTime || !Number.isFinite(execTime)) return
+            const isSameDay = dayjs.unix(execTime).tz(timeZoneTrade.value).isSame(dayjs(ohlcTimestamps[0]), 'day')
+            if (!isSameDay) return
+
+            let isEntry = false
+            let isExit = false
+            if (execution.side) {
+                const side = String(execution.side).toUpperCase()
+                if (trade.strategy == 'long') {
+                    if (side === 'B' || side === 'BUY') isEntry = true
+                    if (side === 'S' || side === 'SELL') isExit = true
+                } else {
+                    if (side === 'S' || side === 'SELL') isEntry = true
+                    if (side === 'B' || side === 'BUY') isExit = true
+                }
+            }
+            if (!isEntry && !isExit) {
+                if (execTime <= trade.entryTime) {
+                    isEntry = true
+                } else if (execTime >= trade.exitTime) {
+                    isExit = true
+                } else if (trade.strategy === 'long') {
+                    isEntry = execTime < trade.exitTime
+                } else {
+                    isExit = execTime >= trade.exitTime
+                }
+            }
+
+            if (isEntry) entryExecutions.push(execution)
+            if (isExit) exitExecutions.push(execution)
+        })
+
+        if (entryExecutions.length > 0) {
+            entryExecutions.forEach(execution => {
+                const execTime = execution.execTime || execution.time || execution.exec_time || execution.timestamp
+                const markPointObj = {
+                    name: 'entryMark',
+                    symbol: 'path://M17.92,11.62a1,1,0,0,0-.21-.33l-5-5a1,1,0,0,0-1.42,1.42L14.59,11H7a1,1,0,0,0,0,2h7.59l-3.3,3.29a1,1,0,0,0,0,1.42,1,1,0,0,0,1.42,0l5-5a1,1,0,0,0,.21-.33A1,1,0,0,0,17.92,11.62Z',
+                    symbolSize: '17',
+                    symbolRotate: '0',
+                    symbolOffset: ['-60%', 0],
+                    coord: [useHourMinuteFormat(execTime), execution.price],
+                    itemStyle: {
+                        color: entryMarkerColor,
+                        borderColor: '#FFFFFF',
+                        borderWidth: '0.5'
+                    },
+                    emphasis: {
+                        disabled: true
+                    }
+                }
+                
+                // Add label for quantity if execution has quantity > 1
+                if (execution.quantity && execution.quantity !== 1) {
+                    markPointObj.label = {
+                        show: true,
+                        formatter: `${execution.quantity}`,
+                        fontSize: 14,
+                        fontWeight: 'bold',
+                        color: '#FFFFFF',
+                        backgroundColor: entryMarkerColor,
+                        borderRadius: 4,
+                        padding: [4, 8],
+                        position: 'top',
+                        distance: 12,
+                        align: 'center'
+                    }
+                }
+                
+                option.series[0].markPoint.data.push(markPointObj)
+            })
+            if (dayjs.unix(trade.entryTime).tz(timeZoneTrade.value).isSame(dayjs(ohlcTimestamps[0]), 'day')) {
+                option.dataZoom[0].startValue = useHourMinuteFormat(dataZoomStartUnix)
+            }
+        } else if (dayjs.unix(trade.entryTime).tz(timeZoneTrade.value).isSame(dayjs(ohlcTimestamps[0]), 'day')) {
             option.series[0].markPoint.data.push({
                 name: 'entryMark',
                 symbol: 'path://M17.92,11.62a1,1,0,0,0-.21-.33l-5-5a1,1,0,0,0-1.42,1.42L14.59,11H7a1,1,0,0,0,0,2h7.59l-3.3,3.29a1,1,0,0,0,0,1.42,1,1,0,0,0,1.42,0l5-5a1,1,0,0,0,.21-.33A1,1,0,0,0,17.92,11.62Z',
@@ -1952,7 +2065,6 @@ export function useCandlestickChart(ohlcTimestamps, ohlcPrices, ohlcVolumes, tra
                 symbolRotate: '0',
                 symbolOffset: ['-60%', 0],
                 coord: [String(useHourMinuteFormat(trade.entryTime)), trade.entryPrice],
-                //value: trade.entryPrice,
                 itemStyle: {
                     color: entryMarkerColor,
                     borderColor: '#FFFFFF',
@@ -1962,11 +2074,52 @@ export function useCandlestickChart(ohlcTimestamps, ohlcPrices, ohlcVolumes, tra
                     disabled: true
                 }
             })
-
             option.dataZoom[0].startValue = useHourMinuteFormat(dataZoomStartUnix)
         }
 
-        if (dayjs.unix(trade.exitTime).tz(timeZoneTrade.value).isSame(dayjs(ohlcTimestamps[0]), 'day')) {
+        if (exitExecutions.length > 0) {
+            exitExecutions.forEach(execution => {
+                const execTime = execution.execTime || execution.time || execution.exec_time || execution.timestamp
+                const markPointObj = {
+                    name: 'exitMark',
+                    symbol: 'path://M17.92,11.62a1,1,0,0,0-.21-.33l-5-5a1,1,0,0,0-1.42,1.42L14.59,11H7a1,1,0,0,0,0,2h7.59l-3.3,3.29a1,1,0,0,0,0,1.42,1,1,0,0,0,1.42,0l5-5a1,1,0,0,0,.21-.33A1,1,0,0,0,17.92,11.62Z',
+                    symbolSize: '17',
+                    symbolRotate: '180',
+                    symbolOffset: ['60%', 0],
+                    coord: [useHourMinuteFormat(execTime), execution.price],
+                    itemStyle: {
+                        color: exitMarkerColor,
+                        borderColor: '#FFFFFF',
+                        borderWidth: '0.5'
+                    },
+                    emphasis: {
+                        disabled: true
+                    }
+                }
+                
+                // Add label for quantity if execution has quantity > 1
+                if (execution.quantity && execution.quantity !== 1) {
+                    markPointObj.label = {
+                        show: true,
+                        formatter: `${execution.quantity}`,
+                        fontSize: 14,
+                        fontWeight: 'bold',
+                        color: '#FFFFFF',
+                        backgroundColor: exitMarkerColor,
+                        borderRadius: 4,
+                        padding: [4, 8],
+                        position: 'bottom',
+                        distance: 12,
+                        align: 'center'
+                    }
+                }
+                
+                option.series[0].markPoint.data.push(markPointObj)
+            })
+            if (dayjs.unix(trade.exitTime).tz(timeZoneTrade.value).isSame(dayjs(ohlcTimestamps[0]), 'day')) {
+                option.dataZoom[0].endValue = useHourMinuteFormat(dataZoomEndUnix)
+            }
+        } else if (dayjs.unix(trade.exitTime).tz(timeZoneTrade.value).isSame(dayjs(ohlcTimestamps[0]), 'day')) {
             option.series[0].markPoint.data.push({
                 name: 'exitMark',
                 symbol: 'path://M17.92,11.62a1,1,0,0,0-.21-.33l-5-5a1,1,0,0,0-1.42,1.42L14.59,11H7a1,1,0,0,0,0,2h7.59l-3.3,3.29a1,1,0,0,0,0,1.42,1,1,0,0,0,1.42,0l5-5a1,1,0,0,0,.21-.33A1,1,0,0,0,17.92,11.62Z',
@@ -1974,7 +2127,6 @@ export function useCandlestickChart(ohlcTimestamps, ohlcPrices, ohlcVolumes, tra
                 symbolRotate: '180',
                 symbolOffset: ['60%', 0],
                 coord: [String(useHourMinuteFormat(trade.exitTime)), trade.exitPrice],
-                //value: trade.exitPrice,
                 itemStyle: {
                     color: exitMarkerColor,
                     borderColor: '#FFFFFF',
@@ -1984,7 +2136,6 @@ export function useCandlestickChart(ohlcTimestamps, ohlcPrices, ohlcVolumes, tra
                     disabled: true
                 }
             })
-
             option.dataZoom[0].endValue = useHourMinuteFormat(dataZoomEndUnix)
         }
 
