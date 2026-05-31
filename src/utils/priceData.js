@@ -51,9 +51,67 @@ export async function useSavePriceData(symbol, ohlcv, options = {}) {
         throw new Error('User must be logged in to save price data.')
     }
 
+    // Determine timeframe used for these objects (keeps in sync with buildPriceObject)
+    const timeframe = options.timeframe || '1m'
+
+    // Collect unique, finite timestampUnix values from incoming candles
+    const timestamps = Array.from(
+        new Set(
+            ohlcv
+                .map((c) => Number(c.t || c.timestamp || c.timestampUnix || c.ts))
+                .filter((t) => Number.isFinite(t))
+        )
+    )
+
+    // Fetch existing priceData entries for this user/symbol/timeframe matching these timestamps
+    const existingTimestamps = new Set()
+    if (timestamps.length > 0) {
+        const parseObject = Parse.Object.extend('priceData')
+
+        // Parse limits queries to reasonable chunk sizes for containedIn
+        const CHUNK_SIZE = 1000
+        for (let i = 0; i < timestamps.length; i += CHUNK_SIZE) {
+            const chunk = timestamps.slice(i, i + CHUNK_SIZE)
+            const query = new Parse.Query(parseObject)
+            query.equalTo('user', currentUser)
+            query.equalTo('symbol', symbol)
+            query.equalTo('timeframe', timeframe)
+            query.containedIn('timestampUnix', chunk)
+            query.limit(chunk.length > 1000 ? 1000 : chunk.length)
+            const results = await query.find()
+            results.forEach((r) => {
+                const ts = Number(r.get('timestampUnix'))
+                if (Number.isFinite(ts)) existingTimestamps.add(ts)
+            })
+        }
+    }
+
+    // Filter out candles that already exist (by timestampUnix)
+    const toUpload = ohlcv.filter((c) => {
+        const ts = Number(c.t || c.timestamp || c.timestampUnix || c.ts)
+        if (!Number.isFinite(ts)) return true // keep candles without valid timestamp
+        return !existingTimestamps.has(ts)
+    })
+
     let savedCount = 0
-    for (let i = 0; i < ohlcv.length; i += MAX_SAVE_BATCH) {
-        const chunk = ohlcv.slice(i, i + MAX_SAVE_BATCH).map((candle) => buildPriceObject(symbol, candle, options, currentUser))
+    // Log info when duplicates are skipped
+    const skippedCount = ohlcv.length - toUpload.length
+    if (skippedCount > 0) {
+        const skippedTimestamps = Array.from(
+            new Set(
+                ohlcv
+                    .map((c) => Number(c.t || c.timestamp || c.timestampUnix || c.ts))
+                    .filter((t) => Number.isFinite(t) && existingTimestamps.has(t))
+            )
+        )
+        const sample = skippedTimestamps.slice(0, 10).join(', ')
+        console.info('-> Skipped ' + skippedCount + ' duplicate priceData candles for', symbol, 'timeframe=' + timeframe, 'user=' + (currentUser && currentUser.id), 'sample timestamps:', sample)
+    }
+
+    if (toUpload.length === 0) return 0
+
+    for (let i = 0; i < toUpload.length; i += MAX_SAVE_BATCH) {
+        const chunk = toUpload.slice(i, i + MAX_SAVE_BATCH).map((candle) => buildPriceObject(symbol, candle, options, currentUser))
         await Parse.Object.saveAll(chunk)
         savedCount += chunk.length
     }
