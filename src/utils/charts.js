@@ -35,7 +35,7 @@ function resolveTradeExecutions(trade) {
     }
 
     const dateKey = trade.td || trade.dateUnix || trade.date
-    console.log('resolveTradeExecutions: incoming trade.executions', {
+    console.debug('resolveTradeExecutions: incoming trade.executions', {
         tradeId: trade?.id || dateKey,
         executionsType: typeof trade.executions[0],
         executionsCount: trade.executions.length,
@@ -43,6 +43,7 @@ function resolveTradeExecutions(trade) {
         executionsByDateCount: dateKey && executions[dateKey] ? executions[dateKey].length : 0,
         executionsByDate: dateKey && executions[dateKey] ? executions[dateKey] : undefined
     })
+    console.debug('resolveTradeExecutions: full trade.executions payload', JSON.parse(JSON.stringify(trade.executions)))
 
     if (typeof trade.executions[0] === 'object' && trade.executions[0] !== null) {
         return trade.executions
@@ -1971,6 +1972,14 @@ export function useCandlestickChart(ohlcTimestamps, ohlcPrices, ohlcVolumes, tra
         };
 
         const executionObjects = resolveTradeExecutions(trade)
+        console.table(
+            executionObjects.map(e => ({
+                time: e.execTime,
+                price: e.price,
+                qty: e.quantity,
+                side: e.side
+            }))
+        )
         console.debug('useCandlestickChart executionObjects', {
             tradeId: trade?.id || trade?.td || trade?.dateUnix || 'unknown',
             executionObjectsLength: executionObjects.length,
@@ -1995,8 +2004,8 @@ export function useCandlestickChart(ohlcTimestamps, ohlcPrices, ohlcVolumes, tra
                     if (side === 'B' || side === 'BUY') isEntry = true
                     if (side === 'S' || side === 'SELL') isExit = true
                 } else {
-                    if (side === 'S' || side === 'SELL') isEntry = true
-                    if (side === 'B' || side === 'BUY') isExit = true
+                    if (side === 'SS' || side === 'SELL') isEntry = true
+                    if (side === 'BC' || side === 'BUY') isExit = true
                 }
             }
             if (!isEntry && !isExit) {

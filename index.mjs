@@ -240,6 +240,140 @@ const setupApiRoutes = (app) => {
         }
     });
 
+    app.post('/api/price-data/ensure-class', async (req, res) => {
+        try {
+            const symbol = req.body?.symbol
+            if (!symbol || typeof symbol !== 'string') {
+                return res.status(400).send({ error: 'Missing symbol' })
+            }
+            const safeSymbol = symbol.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+            if (!safeSymbol) {
+                return res.status(400).send({ error: 'Invalid symbol' })
+            }
+            const className = `priceData_${safeSymbol}`
+            const existingSchema = await ParseNode.Schema.all()
+            const alreadyExists = existingSchema.some((schema) => schema.className === className)
+            if (!alreadyExists) {
+                const schema = new ParseNode.Schema(className)
+                schema.addPointer('user', '_User')
+                schema.addString('symbol')
+                schema.addString('type')
+                schema.addString('timeframe')
+                schema.addString('exchange')
+                schema.addString('contract')
+                schema.addDate('timestamp')
+                schema.addNumber('timestampUnix')
+                schema.addNumber('dateUnixDay')
+                schema.addString('utcOffset')
+                schema.addNumber('open')
+                schema.addNumber('high')
+                schema.addNumber('low')
+                schema.addNumber('close')
+                schema.addNumber('volume')
+                schema.addNumber('delta')
+                await schema.save()
+                console.log(' -> Created Parse schema', className)
+            }
+            res.status(200).send({ className })
+        } catch (error) {
+            console.error('Failed to ensure price data class', error)
+            res.status(500).send({ error: error.message || 'Unable to ensure price data schema' })
+        }
+    })
+
+    app.post('/api/price-data/ensure-field', async (req, res) => {
+        try {
+            const symbol = req.body?.symbol
+            if (!symbol || typeof symbol !== 'string') return res.status(400).send({ error: 'Missing symbol' })
+            const safeSymbol = symbol.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+            if (!safeSymbol) return res.status(400).send({ error: 'Invalid symbol' })
+            const fieldName = safeSymbol
+
+            const existingSchemas = await ParseNode.Schema.all()
+            const priceSchema = existingSchemas.find((s) => s.className === 'priceData')
+
+            if (!priceSchema) {
+                // create priceData class with pointer to user and add array field
+                const schema = new ParseNode.Schema('priceData')
+                schema.addPointer('user', '_User')
+                schema.addArray(fieldName)
+                await schema.save()
+                console.log(' -> Created priceData class with field', fieldName)
+            } else {
+                // if the field does not exist, add it
+                if (!priceSchema.fields || !priceSchema.fields[fieldName]) {
+                    const schema = new ParseNode.Schema('priceData')
+                    try {
+                        await schema.get()
+                    } catch (err) {
+                        // ignore; we'll attempt to save
+                    }
+                    try {
+                        schema.addArray(fieldName)
+                        // Prefer update when possible
+                        if (priceSchema) await schema.update()
+                        else await schema.save()
+                        console.log(' -> Added array field to priceData:', fieldName)
+                    } catch (err) {
+                        try {
+                            await schema.save()
+                        } catch (e) {
+                            console.warn(' -> Failed to add field via save/update', e.message || e)
+                        }
+                    }
+                }
+            }
+
+            res.status(200).send({ fieldName })
+        } catch (error) {
+            console.error('Failed to ensure priceData field', error)
+            res.status(500).send({ error: error.message || 'Unable to ensure priceData field' })
+        }
+    })
+
+    app.post('/api/price-data/ensure-structure', async (req, res) => {
+        try {
+            const existingSchemas = await ParseNode.Schema.all()
+            const priceSchema = existingSchemas.find((s) => s.className === 'priceData')
+
+            if (!priceSchema) {
+                const schema = new ParseNode.Schema('priceData')
+                schema.addPointer('user', '_User')
+                schema.addString('symbol')
+                schema.addArray('days')
+                await schema.save()
+                console.log(' -> Created priceData class with days array')
+            } else {
+                if (!priceSchema.fields || !priceSchema.fields['days']) {
+                    const schema = new ParseNode.Schema('priceData')
+                    try { await schema.get() } catch (e) {}
+                    try {
+                        schema.addArray('days')
+                        await schema.update()
+                        console.log(' -> Added days array to priceData')
+                    } catch (err) {
+                        try { await schema.save() } catch (e) { console.warn(' -> Failed to add days field', e.message || e) }
+                    }
+                }
+                if (!priceSchema.fields || !priceSchema.fields['symbol']) {
+                    const schema = new ParseNode.Schema('priceData')
+                    try { await schema.get() } catch (e) {}
+                    try {
+                        schema.addString('symbol')
+                        await schema.update()
+                        console.log(' -> Added symbol field to priceData')
+                    } catch (err) {
+                        try { await schema.save() } catch (e) { console.warn(' -> Failed to add symbol field', e.message || e) }
+                    }
+                }
+            }
+            res.status(200).send({ ok: true })
+        } catch (error) {
+            console.error('Failed to ensure priceData structure', error)
+            res.status(500).send({ error: error.message || 'Unable to ensure priceData structure' })
+        }
+    })
+
     app.post("/api/updateSchemas", async (req, res) => {
 
         if (!process.env.STRIPE_SK || process.env.UPSERT_SCHEMA) {
