@@ -1,4 +1,3 @@
-import axios from 'axios'
 import Parse from 'parse/dist/parse.min.js'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc.js'
@@ -12,17 +11,9 @@ const getSafeSymbol = (symbol) => {
     return symbol.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_')
 }
 
-const getPriceFieldName = (symbol) => {
-    const safe = getSafeSymbol(symbol)
-    return safe || ''
-}
-
 const ensurePriceDataField = async () => {
-    try {
-        await axios.post('/api/price-data/ensure-structure')
-    } catch (error) {
-        console.warn('Unable to ensure priceData structure', error?.message || error)
-    }
+    // Schema creation is handled by the canonical priceData model and no longer requires
+    // legacy per-symbol schema maintenance.
 }
 
 const buildPriceElement = (symbol, candle, options) => {
@@ -72,8 +63,8 @@ export async function useSavePriceData(symbol, ohlcv, options = {}) {
 
     const timeframe = options.timeframe || '1m'
 
-    // ensure the canonical priceData schema is present
-    try { await ensurePriceDataField() } catch (e) { /* ignore */ }
+    // Schema is managed through the canonical priceData structure only.
+    await ensurePriceDataField()
 
     // Group incoming candles by day (dateUnixDay)
     const grouped = {}
