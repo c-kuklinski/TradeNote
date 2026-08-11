@@ -874,7 +874,6 @@ async function uploadOHLCFile(e, trade) {
     let finalSymbol = trade.symbol ? trade.symbol.trim().toUpperCase() : ""
 
     // Wenn Crosstrading aktiv ist und es sich um ein Micro-Symbol handelt (beginnt mit 'M')
-    // Beispiele: MESM6 -> ESM6, MNQU6 -> NQU6, MYMZ6 -> YMZ6
     if (crossTradingActive.value && finalSymbol.startsWith('M')) {
         const remainder = finalSymbol.substring(1)
         if (remainder.startsWith('ES') || remainder.startsWith('NQ') || remainder.startsWith('RTY') || remainder.startsWith('YM')) {
@@ -891,42 +890,57 @@ async function uploadOHLCFile(e, trade) {
             throw new Error('No trade selected. Open the trade modal first.')
         }
         
-        // Zuweisung des bereinigten Kontraktsymbols (stellt sicher, dass z.B. ESM6/NQU6 genutzt wird)
         temp.symbol = finalSymbol
         temp.ohlcv = []
 
-        // 1. CSV-Zeilen aufteilen und leere Zeilen filtern
+        // CSV-Zeilen aufteilen und leere Zeilen filtern
         const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0)
 
         const ohlcTimestamps = []
         const ohlcPrices = []
         const ohlcVolumes = []
 
-        // 2. Jede Zeile manuell parsen (Semikolon oder Komma als Trennzeichen)
+        // ==========================================
+        // 2. EXAKTES PARSING IHRER TESTDATEN
+        // ==========================================
         for (const line of lines) {
+            // Erkennt automatisch Semikolon (wie in Ihren Daten) oder Komma
             const columns = line.includes(';') ? line.split(';') : line.split(',')
-            if (columns.length < 5) continue // Überspringe fehlerhafte Zeilen
+            if (columns.length < 5) continue 
 
-            const rawTimestamp = columns[0]
-            const openPrice = parseFloat(columns[1])
-            const highPrice = parseFloat(columns[2])
-            const lowPrice = parseFloat(columns[3])
-            const closePrice = parseFloat(columns[4])
-            const volume = 0
+            const rawTimestamp = columns[0]      // "2026-10-06 00:00:00"
+            const openPrice = parseFloat(columns[1]) // 7380.00
+            const highPrice = parseFloat(columns[2]) // 7386.00
+            const lowPrice = parseFloat(columns[3])  // 7374.75
+            const closePrice = parseFloat(columns[4])// 7377.00
+            const volume = 0                         // Standardwert da nicht in CSV
 
-            let formattedDateStr = rawTimestamp
-            const dateParts = rawTimestamp.split(' ')[0].split('-')
-            if (dateParts.length === 3 && parseInt(dateParts[1]) > 12) {
-                formattedDateStr = `${dateParts[0]}-${dateParts[2]}-${dateParts[1]} ${rawTimestamp.split(' ')[1]}`
+            // Validierung der Zahlenwerte
+            if (![openPrice, highPrice, lowPrice, closePrice].every(Number.isFinite)) {
+                continue
             }
 
-            const timestampMs = new Date(formattedDateStr).getTime()
-            if (!Number.isFinite(timestampMs)) continue
-            if (![openPrice, highPrice, lowPrice, closePrice].every(Number.isFinite)) continue
+            // Datum-Parsing via Day.js für maximale Stabilität bei Zeitzonen
+            const timestampMs = dayjs(rawTimestamp, 'YYYY-MM-DD HH:mm:ss').valueOf()
+            if (!Number.isFinite(timestampMs)) {
+                continue
+            }
 
             ohlcTimestamps.push(timestampMs)
+            // Format für useCandlestickChart: [Close, Open, Low, High]
             ohlcPrices.push([closePrice, openPrice, lowPrice, highPrice])
             ohlcVolumes.push(volume)
+
+            // Format für die Parse-Datenbank (useSavePriceData)
+            temp.ohlcv.push({
+                t: timestampMs,
+                o: openPrice,
+                h: highPrice,
+                l: lowPrice,
+                c: closePrice,
+                v: volume,
+                utcOffset: dayjs(timestampMs).format('Z')
+            })
         }
 
         if (ohlcTimestamps.length === 0) {
@@ -934,21 +948,8 @@ async function uploadOHLCFile(e, trade) {
         }
 
         // ==========================================
-        // 3. SYNCHRONES BEFÜLLEN & SORTIEREN (FIX FÜR DB-UPLOAD)
+        // 3. SORTIERUNG DER DATEN (CHART & DB)
         // ==========================================
-        // Wir befüllen temp.ohlcv passend zu den Arrays, damit beim .map() die Indizes stimmen
-        for (let i = 0; i < ohlcTimestamps.length; i++) {
-            temp.ohlcv.push({
-                t: ohlcTimestamps[i],
-                o: ohlcPrices[i][1], // open
-                h: ohlcPrices[i][3], // high
-                l: ohlcPrices[i][2], // low
-                c: ohlcPrices[i][0], // close
-                v: ohlcVolumes[i],
-                utcOffset: dayjs(ohlcTimestamps[i]).format('Z')
-            })
-        }
-
         const sortedRows = ohlcTimestamps.map((timestamp, index) => ({
             timestamp,
             price: ohlcPrices[index],
@@ -963,14 +964,14 @@ async function uploadOHLCFile(e, trade) {
 
         ohlcv.push(temp)
         
-        // Kontext für den Chart mit dem transformierten Symbol übergeben
+        // Chart mit korretem Symbolkontext rendern
         const chartTradeContext = { ...ft, symbol: temp.symbol }
         await useCandlestickChart(sortedTimestamps, sortedPrices, sortedVolumes, chartTradeContext, initCandleChart)
         initCandleChart = false
         candlestickChartFailureMessage.value = null
 
         // ==========================================
-        // 4. PERSISTIERUNG IN DER PARSE-DATENBANK
+        // 4. DATENBANK-UPLOAD (UNTER ESM6 / NQZ6 ETC.)
         // ==========================================
         try {
             await useSavePriceData(temp.symbol, temp.ohlcv, {
