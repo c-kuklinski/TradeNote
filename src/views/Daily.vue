@@ -17,6 +17,7 @@ import { useGetExcursions, useGetTags, useGetAvailableTags, useUpdateAvailableTa
 import { useCandlestickChart } from '../utils/charts';
 
 import { useGetMFEPrices } from '../utils/addTrades';
+import { useSavePriceData, useGetPriceData } from '../utils/priceData';
 
 /* MODULES */
 import Parse from 'parse/dist/parse.min.js'
@@ -77,7 +78,8 @@ const candlestickChartFailureMessage = ref(null)
 const apiIndex = ref(-1)
 const apiKey = ref(null)
 const apiSource = ref(null)
-
+const crossTradingActive = ref(true)
+// move crossTrading to settings
 onBeforeMount(async () => {
 
 })
@@ -108,7 +110,7 @@ onMounted(async () => {
  ***************/
 let loadScreenshots = false
 let initCandleChart = true // needed to init or not candlestickCharts in useCandlestickChart
-
+ 
 async function clickTradesModal(param1, param2, param3) {
     //param1 : itemTradeIndex : index inside filteredtrades. This is only defined on first click/when we open modal and not on next or previous
     //param2 : also called tradeIndex, is the index inside the trades (= index of itemTrade.trades)
@@ -222,76 +224,66 @@ async function clickTradesModal(param1, param2, param3) {
                         screenshot[key] = findScreenshot[key]
                     }
                 } else {
-                    //console.log(" did not find any screenshot")
                     screenshot.side = null
                     screenshot.type = null
 
                     /* GET OHLC / CANDLESTICK CHARTS */
+                    let filteredTradesObject = filteredTrades[itemTradeIndex.value].trades[param3]
+                    const dbLoaded = await loadSavedPriceData(filteredTradesObject)
+                    if (!dbLoaded) {
+                        if (apiIndex.value != -1) {
+                            apiKey.value = apis[apiIndex.value].key
+                            try {
+                                candlestickChartFailureMessage.value = null
+                                let ohlcTimestamps
+                                let ohlcPrices
+                                let ohlcVolumes
+                                if (ohlcArray.length == 0) {
+                                    console.log(" -> No symbol/date in ohlcArray")
+                                    await getOHLC(filteredTradesObject.td, filteredTradesObject.symbol, filteredTradesObject.type)
+                                    ohlcTimestamps = ohlcArray[0].ohlcTimestamps
+                                    ohlcPrices = ohlcArray[0].ohlcPrices
+                                    ohlcVolumes = ohlcArray[0].ohlcVolumes
 
+                                } else {
+                                    let index = ohlcArray.findIndex(obj => obj.date == filteredTradesObject.td && obj.symbol == filteredTradesObject.symbol)
 
-                    if (apiIndex.value != -1) {
-                        apiKey.value = apis[apiIndex.value].key
-                        let filteredTradesObject = filteredTrades[itemTradeIndex.value].trades[param3]
-                        if (apiKey.value) {
-                            if (filteredTradesObject.type == "future" && (databentoIndex === -1 || apis[databentoIndex].key === "")) {
-                                candlestickChartFailureMessage.value = "You need a Databento API for Futures."
-                            } else {
-                                try {
-                                    candlestickChartFailureMessage.value = null
-                                    let ohlcTimestamps
-                                    let ohlcPrices
-                                    let ohlcVolumes
-                                    if (ohlcArray.length == 0) {
-                                        console.log(" -> No symbol/date in ohlcArray")
-                                        await getOHLC(filteredTradesObject.td, filteredTradesObject.symbol, filteredTradesObject.type)
-                                        ohlcTimestamps = ohlcArray[0].ohlcTimestamps
-                                        ohlcPrices = ohlcArray[0].ohlcPrices
-                                        ohlcVolumes = ohlcArray[0].ohlcVolumes
-
+                                    if (index != -1) {
+                                        console.log(" -> Symbol and/or date exists in ohlcArray")
+                                        ohlcTimestamps = ohlcArray[index].ohlcTimestamps
+                                        ohlcPrices = ohlcArray[index].ohlcPrices
+                                        ohlcVolumes = ohlcArray[index].ohlcVolumes
                                     } else {
-                                        let index = ohlcArray.findIndex(obj => obj.date == filteredTradesObject.td && obj.symbol == filteredTradesObject.symbol)
-
+                                        console.log(" -> Symbol and/or date does not exist in ohlcArray")
+                                        await getOHLC(filteredTradesObject.td, filteredTradesObject.symbol, filteredTradesObject.type)
+                                        let index = ohlcArray.findIndex(obj => obj.date === filteredTradesObject.td && obj.symbol === filteredTradesObject.symbol)
                                         if (index != -1) {
-                                            console.log(" -> Symbol and/or date exists in ohlcArray")
                                             ohlcTimestamps = ohlcArray[index].ohlcTimestamps
                                             ohlcPrices = ohlcArray[index].ohlcPrices
                                             ohlcVolumes = ohlcArray[index].ohlcVolumes
                                         } else {
-                                            console.log(" -> Symbol and/or date does not exist in ohlcArray")
-                                            await getOHLC(filteredTradesObject.td, filteredTradesObject.symbol, filteredTradesObject.type)
-                                            //console.log("ohlcArray "+JSON.stringify(ohlcArray))
-                                            let index = ohlcArray.findIndex(obj => obj.date === filteredTradesObject.td && obj.symbol === filteredTradesObject.symbol)
-                                            //console.log("index "+index)
-                                            if (index != -1) {
-                                                ohlcTimestamps = ohlcArray[index].ohlcTimestamps
-                                                ohlcPrices = ohlcArray[index].ohlcPrices
-                                                ohlcVolumes = ohlcArray[index].ohlcVolumes
-                                            } else {
-                                                console.log(" -> there's an issues with OHLC")
-                                            }
+                                            console.log(" -> there's an issues with OHLC")
                                         }
                                     }
-                                    await useCandlestickChart(ohlcTimestamps, ohlcPrices, ohlcVolumes, filteredTradesObject, initCandleChart)
-                                    initCandleChart = false
-
-                                } catch (error) {
-                                    if (error.response && error.response.status === 429) {
-                                        candlestickChartFailureMessage.value = "Too many requests, try again later"
-                                    }
-                                    else if (error.response) {
-                                        candlestickChartFailureMessage.value = error.response.statusText
-                                    }
-                                    else {
-                                        candlestickChartFailureMessage.value = error
-                                    }
-                                    console.error(error)
                                 }
+                                await useCandlestickChart(ohlcTimestamps, ohlcPrices, ohlcVolumes, filteredTradesObject, initCandleChart)
+                                initCandleChart = false
+
+                            } catch (error) {
+                                if (error.response && error.response.status === 429) {
+                                    candlestickChartFailureMessage.value = "Too many requests, try again later"
+                                }
+                                else if (error.response) {
+                                    candlestickChartFailureMessage.value = error.response.statusText
+                                }
+                                else {
+                                    candlestickChartFailureMessage.value = error
+                                }
+                                console.error(error)
                             }
                         } else {
-                            candlestickChartFailureMessage.value = "Missing API Key. To see your entry and exist on a chart, insert your API key in settings."
+                            candlestickChartFailureMessage.value = "No OHLC data available for this symbol/date. Upload CSV, JSON or add an API key."
                         }
-                    } else {
-                        candlestickChartFailureMessage.value = "Missing API Key. To see your entry and exist on a chart, insert your API key in settings."
                     }
                 }
 
@@ -661,8 +653,71 @@ const filterDiary = (param) => {
 }
 
 
+async function loadSavedPriceData(trade) {
+    if (!trade || !trade.symbol || !trade.td) {
+        return false
+    }
+
+    try {
+        // Apply crosstrading logic: if enabled and symbol starts with M, strip it
+        let querySymbol = trade.symbol
+        if (crossTradingActive.value && trade.symbol.startsWith('M')) {
+            querySymbol = trade.symbol.substring(1)
+            console.log(` -> Crosstrading active: querying saved data for ${querySymbol} instead of ${trade.symbol}`)
+        }
+
+        const startUnix = dayjs(trade.td * 1000).tz(timeZoneTrade.value).startOf('day').valueOf()
+        const endUnix = dayjs(trade.td * 1000).tz(timeZoneTrade.value).endOf('day').valueOf()
+        const candles = await useGetPriceData(querySymbol, startUnix, endUnix, 10000, '1m')
+        console.log(` -> Load candle data for ${candles.length} candles of ${querySymbol}`)
+
+        if (!candles || candles.length === 0) {
+            candlestickChartFailureMessage.value = 'No saved price data for ' + trade.symbol
+            return false
+        }
+
+        const ohlcTimestamps = []
+        const ohlcPrices = []
+        const ohlcVolumes = []
+        for (const candle of candles) {
+            if (!Number.isFinite(candle.timestampUnix)) continue
+            ohlcTimestamps.push(candle.timestampUnix)
+            ohlcPrices.push([candle.close, candle.open, candle.low, candle.high])
+            ohlcVolumes.push(Number.isFinite(candle.volume) ? candle.volume : 0)
+        }
+
+        if (ohlcTimestamps.length === 0) {
+            candlestickChartFailureMessage.value = 'No valid OHLC timestamps found'
+            return false
+        }
+
+        await useCandlestickChart(ohlcTimestamps, ohlcPrices, ohlcVolumes, trade, initCandleChart)
+        initCandleChart = false
+        ohlcArray.push({
+            date: trade.td,
+            symbol: trade.symbol,
+            ohlcTimestamps,
+            ohlcPrices,
+            ohlcVolumes
+        })
+        candlestickChartFailureMessage.value = null
+        return true
+    } catch (error) {
+        console.warn(' -> loadSavedPriceData failed', error)
+        candlestickChartFailureMessage.value = 'Error loading price data: ' + (error.message || error)
+        return false
+    }
+}
+
 
 function getOHLC(date, symbol, type) {
+    // Apply crosstrading logic: if enabled and symbol starts with M, strip it
+    let apiSymbol = symbol
+    if (crossTradingActive.value && symbol.startsWith('M')) {
+        apiSymbol = symbol.substring(1)
+        console.log(` -> Crosstrading active: using ${apiSymbol} instead of ${symbol}`)
+    }
+
     if (apiSource.value === "databento") {
         console.log(" -> getting OHLC from " + apiSource.value + " for date " + useDateCalFormat(date))
 
@@ -670,7 +725,7 @@ function getOHLC(date, symbol, type) {
             let temp = {}
             temp.symbol = symbol
 
-            let databentoSymbol = temp.symbol
+            let databentoSymbol = apiSymbol
             let stype_in = "raw_symbol"
             let toDate = dayjs(date * 1000).tz(timeZoneTrade.value).endOf('day').unix()
             let dataset
@@ -679,7 +734,7 @@ function getOHLC(date, symbol, type) {
 
             if (type === "future") {
                 dataset = "GLBX.MDP3"
-                databentoSymbol = temp.symbol + ".c.0"
+                databentoSymbol = apiSymbol + ".c.0"
                 stype_in = "continuous"
 
             } else if (type === "stock") {
@@ -749,15 +804,15 @@ function getOHLC(date, symbol, type) {
 
         let ticker
         if (type === "put" || type === "call" || type === "option") {
-            ticker = "O:" + symbol
+            ticker = "O:" + apiSymbol
         } else if (type === "future") {
-            ticker = "I:" + symbol
+            ticker = "I:" + apiSymbol
         } else if (type === "forex") {
-            ticker = "C:" + symbol
+            ticker = "C:" + apiSymbol
         } else if (type === "crypto") {
-            ticker = "X:" + symbol
+            ticker = "X:" + apiSymbol
         } else {
-            ticker = symbol
+            ticker = apiSymbol
         }
         console.log("  --> Getting OHLC for ticker " + ticker + " on " + date)
 
@@ -805,6 +860,346 @@ function getOHLC(date, symbol, type) {
         })
     }
 
+}
+async function uploadOHLCFile(e, trade) {
+    candlestickChartFailureMessage.value = null
+    const file = e.target.files && e.target.files[0]
+    if (!file) return
+    console.log(" [uploadOHLCFile]-> Uploading OHLC CSV file: " + file.name)
+    console.log(" [uploadOHLCFile]-> Current trade symbol from DB: " + trade.symbol)
+
+    // ==========================================
+    // 1. UNIVERSYLLES SYMBOL-MAPPING & CROSSTRADING
+    // ==========================================
+    let finalSymbol = trade.symbol ? trade.symbol.trim().toUpperCase() : ""
+
+    // Wenn Crosstrading aktiv ist und es sich um ein Micro-Symbol handelt (beginnt mit 'M')
+    if (crossTradingActive.value && finalSymbol.startsWith('M')) {
+        const remainder = finalSymbol.substring(1)
+        if (remainder.startsWith('ES') || remainder.startsWith('NQ') || remainder.startsWith('RTY') || remainder.startsWith('YM')) {
+            finalSymbol = remainder
+            console.log(` -> Crosstrading active (CSV): transformed Micro to Main symbol: ${finalSymbol}`)
+        }
+    }
+
+    try {
+        const text = await file.text()
+        let temp = {}
+        const ft = filteredTrades[itemTradeIndex.value]?.trades?.[tradeIndex.value]
+        if (!ft) {
+            throw new Error('No trade selected. Open the trade modal first.')
+        }
+        
+        temp.symbol = finalSymbol
+        temp.ohlcv = []
+
+        // CSV-Zeilen aufteilen und leere Zeilen filtern
+        const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0)
+
+        const ohlcTimestamps = []
+        const ohlcPrices = []
+        const ohlcVolumes = []
+
+        // ==========================================
+        // 2. EXAKTES PARSING IHRER TESTDATEN
+        // ==========================================
+        for (const line of lines) {
+            // Erkennt automatisch Semikolon (wie in Ihren Daten) oder Komma
+            const columns = line.includes(';') ? line.split(';') : line.split(',')
+            if (columns.length < 5) continue 
+
+            const rawTimestamp = columns[0]      // "2026-10-06 00:00:00"
+            const openPrice = parseFloat(columns[1]) // 7380.00
+            const highPrice = parseFloat(columns[2]) // 7386.00
+            const lowPrice = parseFloat(columns[3])  // 7374.75
+            const closePrice = parseFloat(columns[4])// 7377.00
+            const volume = 0                         // Standardwert da nicht in CSV
+
+            // Validierung der Zahlenwerte
+            if (![openPrice, highPrice, lowPrice, closePrice].every(Number.isFinite)) {
+                continue
+            }
+
+            // Datum-Parsing via Day.js für maximale Stabilität bei Zeitzonen
+            const timestampMs = dayjs(rawTimestamp, 'YYYY-MM-DD HH:mm:ss').valueOf()
+            if (!Number.isFinite(timestampMs)) {
+                continue
+            }
+
+            ohlcTimestamps.push(timestampMs)
+            // Format für useCandlestickChart: [Close, Open, Low, High]
+            ohlcPrices.push([closePrice, openPrice, lowPrice, highPrice])
+            ohlcVolumes.push(volume)
+
+            // Format für die Parse-Datenbank (useSavePriceData)
+            temp.ohlcv.push({
+                t: timestampMs,
+                o: openPrice,
+                h: highPrice,
+                l: lowPrice,
+                c: closePrice,
+                v: volume,
+                utcOffset: dayjs(timestampMs).format('Z')
+            })
+        }
+
+        if (ohlcTimestamps.length === 0) {
+            throw new Error('No valid OHLC rows found in CSV')
+        }
+
+        // ==========================================
+        // 3. SORTIERUNG DER DATEN (CHART & DB)
+        // ==========================================
+        const sortedRows = ohlcTimestamps.map((timestamp, index) => ({
+            timestamp,
+            price: ohlcPrices[index],
+            volume: ohlcVolumes[index],
+            ohlcv: temp.ohlcv[index]
+        })).sort((a, b) => a.timestamp - b.timestamp)
+
+        const sortedTimestamps = sortedRows.map(item => item.timestamp)
+        const sortedPrices = sortedRows.map(item => item.price)
+        const sortedVolumes = sortedRows.map(item => item.volume)
+        temp.ohlcv = sortedRows.map(item => item.ohlcv)
+
+        ohlcv.push(temp)
+        
+        // Chart mit korretem Symbolkontext rendern
+        const chartTradeContext = { ...ft, symbol: temp.symbol }
+        await useCandlestickChart(sortedTimestamps, sortedPrices, sortedVolumes, chartTradeContext, initCandleChart)
+        initCandleChart = false
+        candlestickChartFailureMessage.value = null
+
+        // ==========================================
+        // 4. DATENBANK-UPLOAD (UNTER ESM6 / NQZ6 ETC.)
+        // ==========================================
+        try {
+            await useSavePriceData(temp.symbol, temp.ohlcv, {
+                utcOffset: dayjs().format('Z'),
+                timeframe: '1m',
+                type: ft.type || 'future'
+            })
+            console.log(' [uploadOHLCFile]-> Successfully saved CSV price data in DB for:', temp.symbol)
+        } catch (saveError) {
+            console.warn(' [uploadOHLCFile]-> Failed to save CSV price data in DB:', saveError)
+        }
+
+    } catch (error) {
+        console.error('Error loading OHLC CSV', error)
+        candlestickChartFailureMessage.value = 'Error parsing CSV: ' + error.message
+    }
+}
+
+async function uploadOHLCJsonFile(e, trade) {
+    candlestickChartFailureMessage.value = null
+    const file = e.target.files && e.target.files[0]
+    if (!file) return
+    console.log(" [uploadOHLCJson]-> Uploading OHLC JSON file: " + file.name)
+    console.log(" [uploadOHLCJson]-> Current trade symbol from DB: " + trade.symbol)
+
+    // ==========================================
+    // 1. UNIVERSYLLES SYMBOL-MAPPING & CROSSTRADING
+    // ==========================================
+    let finalSymbol = trade.symbol ? trade.symbol.trim().toUpperCase() : ""
+
+    // Wenn Crosstrading aktiv ist und es sich um ein Micro-Symbol handelt (beginnt mit 'M')
+    // Beispiele: MESM6 -> ESM6, MNQU6 -> NQU6, MYMZ6 -> YMZ6
+    if (crossTradingActive.value && finalSymbol.startsWith('M')) {
+        // Wir prüfen, ob danach ein bekanntes Hauptsymbol folgt (MES->ES, MNQ->NQ, MRTY->RTY, MYM->YM)
+        const remainder = finalSymbol.substring(1)
+        if (remainder.startsWith('ES') || remainder.startsWith('NQ') || remainder.startsWith('RTY') || remainder.startsWith('YM')) {
+            finalSymbol = remainder
+            console.log(` [uploadOHLCJson]-> Crosstrading active: transformed Micro to Main symbol: ${finalSymbol}`)
+        }
+    }
+
+    try {
+        const text = await file.text()
+        let jsonData
+        try {
+            jsonData = JSON.parse(text)
+        } catch (parseError) {
+            throw new Error('Invalid JSON format')
+        }
+
+        if (!jsonData || typeof jsonData !== 'object') {
+            throw new Error('JSON root must be an object')
+        }
+
+        const ft = filteredTrades[itemTradeIndex.value]?.trades?.[tradeIndex.value]
+        if (!ft) {
+            throw new Error('No trade selected. Open the trade modal first.')
+        }
+
+        // ==========================================
+        // 2. ABSICHERUNG: WARUM DER UPLOAD FEHLSCHLUG
+        // ==========================================
+        // Hier prüfen wir das Symbol aus dem JSON. 
+        // Wenn es nur "ES", "MES", "NQ", "MNQ" etc. ist (Länge <= 3), extrahieren wir das echte Kontraktsymbol.
+        let jsonSymbol = jsonData.symbol ? jsonData.symbol.trim().toUpperCase() : ""
+        
+        // Liste unvollständiger Basis-Symbole ohne Monats-/Jahreskennung
+        const flatSymbols = ['ES', 'MES', 'NQ', 'MNQ', 'YM', 'MYM', 'RTY', 'MRTY']
+        
+        if (flatSymbols.includes(jsonSymbol) || !jsonSymbol) {
+            console.log(` [uploadOHLCJson]-> JSON contained flat or empty symbol ('${jsonSymbol}'). Overriding with contract symbol: ${finalSymbol}`)
+            jsonSymbol = finalSymbol // Überschreibt z.B. "ES" mit "ESM6"
+        }
+
+        const temp = {
+            symbol: jsonSymbol, // Garantiert jetzt z.B. "ESM6" statt "ES"
+            ohlcv: []
+        }
+
+        if (!Array.isArray(jsonData.data)) {
+            throw new Error('JSON must contain a data array')
+        }
+
+        // ==========================================
+        // 3. DATEN-PARSING (UNVERÄNDERT)
+        // ==========================================
+        const ohlcTimestamps = []
+        const ohlcPrices = []
+        const ohlcVolumes = []
+
+        for (const row of jsonData.data) {
+            if (!row || !row.date || !row.time) {
+                continue
+            }
+
+            const normalizedDate = String(row.date).replace(/_/g, '-')
+            const dateTimeStr = `${normalizedDate} ${row.time}`
+            const timestampMs = dayjs(dateTimeStr, ['YYYY-MM-DD HH:mm:ss', 'YYYY-M-D HH:mm:ss'], true).valueOf()
+
+            if (!Number.isFinite(timestampMs)) {
+                continue
+            }
+
+            const openPrice = parseFloat(row.open)
+            const highPrice = parseFloat(row.high)
+            const lowPrice = parseFloat(row.low)
+            const closePrice = parseFloat(row.close)
+            const volume = Number.isFinite(parseFloat(row.volume)) ? parseFloat(row.volume) : 0
+
+            if (![openPrice, highPrice, lowPrice, closePrice].every(Number.isFinite)) {
+                continue
+            }
+
+            ohlcTimestamps.push(timestampMs)
+            ohlcPrices.push([closePrice, openPrice, lowPrice, highPrice])
+            ohlcVolumes.push(volume)
+        }
+
+        if (ohlcTimestamps.length === 0) {
+            throw new Error('No valid OHLC rows found in JSON')
+        }
+
+        // WICHTIG: Befüllen von temp.ohlcv passend zu den bereinigten Daten
+        for (let i = 0; i < ohlcTimestamps.length; i++) {
+            temp.ohlcv.push({
+                t: ohlcTimestamps[i],
+                o: ohlcPrices[i][1],
+                h: ohlcPrices[i][3],
+                l: ohlcPrices[i][2],
+                c: ohlcPrices[i][0],
+                v: ohlcVolumes[i],
+                utcOffset: dayjs(ohlcTimestamps[i]).format('Z')
+            })
+        }
+
+        const sortedRows = ohlcTimestamps.map((timestamp, index) => ({
+            timestamp,
+            price: ohlcPrices[index],
+            volume: ohlcVolumes[index],
+            ohlcv: temp.ohlcv[index]
+        })).sort((a, b) => a.timestamp - b.timestamp)
+
+        const sortedTimestamps = sortedRows.map(item => item.timestamp)
+        const sortedPrices = sortedRows.map(item => item.price)
+        const sortedVolumes = sortedRows.map(item => item.volume)
+        temp.ohlcv = sortedRows.map(item => item.ohlcv)
+
+        ohlcv.push(temp)
+        
+        // Kontext für den Chart mit dem korrekten Symbol übergeben
+        const chartTradeContext = { ...ft, symbol: temp.symbol }
+        await useCandlestickChart(sortedTimestamps, sortedPrices, sortedVolumes, chartTradeContext, initCandleChart)
+        initCandleChart = false
+        candlestickChartFailureMessage.value = null
+
+        // ==========================================
+        // 4. FIX FÜR DEN DATENBANK-UPLOAD
+        // ==========================================
+        try {
+            // Übergibt jetzt exakt "ESM6" oder "NQU6" an Ihre Parse-Schnittstelle
+            await useSavePriceData(temp.symbol, temp.ohlcv, {
+                utcOffset: dayjs().format('Z'),
+                timeframe: '1m',
+                type: ft.type || 'future'
+            })
+            console.log(' [uploadOHLCJson]-> Successfully saved price data in DB for:', temp.symbol)
+        } catch (saveError) {
+            console.warn(' [uploadOHLCJson]-> Failed to save price data in DB:', saveError)
+        }
+    } catch (error) {
+        console.error('Error loading OHLC JSON', error)
+        candlestickChartFailureMessage.value = 'Error parsing JSON: ' + error.message
+    }
+}
+
+
+async function showLocalOHLC() {
+    try {
+        const ft = filteredTrades[itemTradeIndex.value].trades[tradeIndex.value]
+        const ok = await loadLocalOHLCFromProject(ft)
+        if (!ok) {
+            candlestickChartFailureMessage.value = 'Local OHLC not found in /data/'
+        } else {
+            candlestickChartFailureMessage.value = null
+        }
+    } catch (e) {
+        console.error(e)
+        candlestickChartFailureMessage.value = 'Error loading local OHLC: ' + e.message
+    }
+}
+//ToDo Cleanup specific stuff
+async function loadLocalOHLCFromProject(trade) {
+    const candidates = [
+        `testdata_18_5.csv`,
+        `${trade.symbol}_${dayjs(trade.td * 1000).format('YYYY_MM_DD')}.csv`,
+        `${dayjs(trade.td * 1000).format('YYYY_MM_DD')}.csv`,
+        `${trade.symbol}.csv`
+    ]
+
+    for (const fileName of candidates) {
+        try {
+            const response = await axios.get(`/api/local-ohlc/${encodeURIComponent(fileName)}`)
+            if (!response.data) continue
+            const temp = { symbol: trade.symbol, ohlcv: [] }
+            const res = await useCreateOHLCV(response.data, temp)
+            ohlcv.push(res)
+
+            const ohlcTimestamps = []
+            const ohlcPrices = []
+            const ohlcVolumes = []
+            for (let i = 0; i < res.ohlcv.length; i++) {
+                const element = res.ohlcv[i]
+                ohlcTimestamps.push(element.t)
+                ohlcPrices.push([element.c, element.o, element.l, element.h])
+                ohlcVolumes.push(element.v)
+            }
+            await useCandlestickChart(ohlcTimestamps, ohlcPrices, ohlcVolumes, trade, initCandleChart)
+            initCandleChart = false
+            return true
+        } catch (error) {
+            if (error.response && error.response.status === 404) {
+                continue
+            }
+            console.warn('Local OHLC load failed for', fileName, error)
+            continue
+        }
+    }
+    return false
 }
 
 </script>
@@ -1211,6 +1606,23 @@ function getOHLC(date, symbol, type) {
                     </div>
                     <div v-show="!candlestickChartFailureMessage && !screenshot.originalBase64" id="candlestickChart"
                         class="candlestickClass">
+                    </div>
+                    <div class="mt-2 text-center">
+                        <label class="form-label small">Upload OHLC CSV or JSON</label>
+                        <div class="row g-2 justify-content-center">
+                            <div class="col-auto">
+                                <input type="file" accept=".csv" class="form-control form-control-sm" v-on:change="uploadOHLCFile($event,filteredTrades[itemTradeIndex].trades[tradeIndex])" />
+                            </div>
+                            <div class="col-auto">
+                                <input type="file" accept=".json" class="form-control form-control-sm" v-on:change="uploadOHLCJsonFile($event,filteredTrades[itemTradeIndex].trades[tradeIndex])" />
+                            </div>
+                            <div class="col-auto d-flex align-items-center">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="crossTradingToggle" v-model="crossTradingActive" />
+                                    <label class="form-check-label small" for="crossTradingToggle">Crosstrading active</label>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="container mt-2 text-center" v-show="candlestickChartFailureMessage">{{
                         candlestickChartFailureMessage }}</div>

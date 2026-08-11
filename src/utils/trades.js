@@ -1,4 +1,4 @@
-import { pageId, spinnerLoadingPage, selectedRange, selectedDateRange, filteredTrades, filteredTradesTrades, selectedPositions, selectedAccounts, pAndL, queryLimit, blotter, totals, totalsByDate, groups, profitAnalysis, timeFrame, timeZoneTrade, hasData, satisfactionArray, satisfactionTradeArray, tags, filteredTradesDaily, dailyPagination, dailyQueryLimit, endOfList, excursions, selectedTags, availableTags, selectedItem, imports, daysBack } from "../stores/globals.js"
+import { pageId, spinnerLoadingPage, selectedRange, selectedDateRange, filteredTrades, filteredTradesTrades, selectedPositions, selectedAccounts, pAndL, queryLimit, blotter, totals, totalsByDate, groups, profitAnalysis, timeFrame, timeZoneTrade, hasData, satisfactionArray, satisfactionTradeArray, tags, filteredTradesDaily, dailyPagination, dailyQueryLimit, endOfList, excursions, selectedTags, availableTags, selectedItem, imports, daysBack, executions } from "../stores/globals.js"
 import { useMountDashboard, useMountDaily, useMountCalendar, useDateTimeFormat } from "./utils.js";
 import { useCreateBlotter, useCreatePnL } from "./addTrades.js"
 
@@ -61,6 +61,15 @@ export async function useGetFilteredTrades(param) {
                 if (element.trades) {
                     let temp = _.omit(element, ["trades", "pAndL", "blotter"]) //We recreate trades and pAndL
                     temp.trades = []
+
+                    // Populate global executions store for chart resolution
+                    if (pageId.value === "daily" && element.executions && Array.isArray(element.executions)) {
+                        executions[element.dateUnix] = element.executions
+                        console.debug('Loaded executions for dateUnix', { 
+                            dateUnix: element.dateUnix, 
+                            executionCount: element.executions.length 
+                        })
+                    }
 
                     //we need to get date, month and year in order to compare for calendar creation
                     temp.date = dayjs.unix(element.dateUnix).tz(timeZoneTrade.value).date()
@@ -290,7 +299,12 @@ export async function useGetTrades(param) {
         const parseObject = Parse.Object.extend("trades");
         const query = new Parse.Query(parseObject)
         query.equalTo("user", Parse.User.current());
-        query.exclude("executions", "blotter", "pAndL") // we omit to make it lighter
+        if (pageId.value !== "daily") {
+            query.exclude("executions", "blotter", "pAndL") // we omit to make it lighter for non-daily pages
+        } else {
+            query.exclude("blotter", "pAndL")
+            query.include("executions") // ensure execution data is fetched for daily page
+        }
         if (pageId.value === "imports" || param === "imports") {
             query.descending("dateUnix");
             query.limit(20);
