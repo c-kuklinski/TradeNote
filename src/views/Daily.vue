@@ -1608,11 +1608,8 @@ async function loadLocalOHLCFromProject(trade) {
                         class="candlestickClass">
                     </div>
                     <div class="mt-2 text-center">
-                        <label class="form-label small">Upload OHLC CSV or JSON</label>
+                        <label class="form-label small">Upload OHLC JSON</label>
                         <div class="row g-2 justify-content-center">
-                            <div class="col-auto">
-                                <input type="file" accept=".csv" class="form-control form-control-sm" v-on:change="uploadOHLCFile($event,filteredTrades[itemTradeIndex].trades[tradeIndex])" />
-                            </div>
                             <div class="col-auto">
                                 <input type="file" accept=".json" class="form-control form-control-sm" v-on:change="uploadOHLCJsonFile($event,filteredTrades[itemTradeIndex].trades[tradeIndex])" />
                             </div>

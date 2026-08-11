@@ -17,17 +17,11 @@ const getPriceFieldName = (symbol) => {
     return safe || ''
 }
 
-const ensurePriceDataField = async (symbol) => {
-    const safe = getSafeSymbol(symbol)
-    if (!safe) return
+const ensurePriceDataField = async () => {
     try {
-        if (safe === 'DAYS') {
-            await axios.post('/api/price-data/ensure-structure')
-        } else {
-            await axios.post('/api/price-data/ensure-field', { symbol: safe })
-        }
+        await axios.post('/api/price-data/ensure-structure')
     } catch (error) {
-        console.warn('Unable to ensure priceData field for', safe, error?.message || error)
+        console.warn('Unable to ensure priceData structure', error?.message || error)
     }
 }
 
@@ -78,8 +72,8 @@ export async function useSavePriceData(symbol, ohlcv, options = {}) {
 
     const timeframe = options.timeframe || '1m'
 
-    // ensure the priceData schema has the per-symbol/day structure
-    try { await ensurePriceDataField('days') } catch (e) { /* ignore */ }
+    // ensure the canonical priceData schema is present
+    try { await ensurePriceDataField() } catch (e) { /* ignore */ }
 
     // Group incoming candles by day (dateUnixDay)
     const grouped = {}
@@ -178,8 +172,7 @@ export async function useGetPriceData(symbol, startUnix, endUnix, limit = 10000,
         return arr.slice(0, limit)
     }
 
-    // Fallback to legacy per-candle entries
-    console.log(`[useGetPriceData] Data not found in days structure, falling back to legacy query for symbol="${symbol}", timeframe="${timeframe}", startUnix=${startUnix}, endUnix=${endUnix}`)
+    console.log(`[useGetPriceData] Data not found in days structure for symbol="${symbol}", timeframe="${timeframe}", startUnix=${startUnix}, endUnix=${endUnix}`)
     const DatabaseObj = Parse.Object.extend(PRICE_DATA_CLASS)
     const DatabaseQuery = new Parse.Query(DatabaseObj)
     DatabaseQuery.equalTo('user', currentUser)

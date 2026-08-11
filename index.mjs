@@ -242,92 +242,69 @@ const setupApiRoutes = (app) => {
 
     app.post('/api/price-data/ensure-class', async (req, res) => {
         try {
-            const symbol = req.body?.symbol
-            if (!symbol || typeof symbol !== 'string') {
-                return res.status(400).send({ error: 'Missing symbol' })
-            }
-            const safeSymbol = symbol.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_')
-            if (!safeSymbol) {
-                return res.status(400).send({ error: 'Invalid symbol' })
-            }
-            const className = `priceData_${safeSymbol}`
-            const existingSchema = await ParseNode.Schema.all()
-            const alreadyExists = existingSchema.some((schema) => schema.className === className)
-            if (!alreadyExists) {
-                const schema = new ParseNode.Schema(className)
+            const existingSchemas = await ParseNode.Schema.all()
+            const priceSchema = existingSchemas.find((s) => s.className === 'priceData')
+
+            if (!priceSchema) {
+                const schema = new ParseNode.Schema('priceData')
                 schema.addPointer('user', '_User')
                 schema.addString('symbol')
-                schema.addString('type')
-                schema.addString('timeframe')
-                schema.addString('exchange')
-                schema.addString('contract')
-                schema.addDate('timestamp')
-                schema.addNumber('timestampUnix')
-                schema.addNumber('dateUnixDay')
-                schema.addString('utcOffset')
-                schema.addNumber('open')
-                schema.addNumber('high')
-                schema.addNumber('low')
-                schema.addNumber('close')
-                schema.addNumber('volume')
-                schema.addNumber('delta')
+                schema.addArray('days')
                 await schema.save()
-                console.log(' -> Created Parse schema', className)
+                console.log(' -> Created canonical priceData class')
+            } else {
+                if (!priceSchema.fields || !priceSchema.fields['symbol']) {
+                    const schema = new ParseNode.Schema('priceData')
+                    try { await schema.get() } catch (e) {}
+                    schema.addString('symbol')
+                    await schema.update()
+                }
+                if (!priceSchema.fields || !priceSchema.fields['days']) {
+                    const schema = new ParseNode.Schema('priceData')
+                    try { await schema.get() } catch (e) {}
+                    schema.addArray('days')
+                    await schema.update()
+                }
             }
-            res.status(200).send({ className })
+
+            res.status(200).send({ className: 'priceData' })
         } catch (error) {
-            console.error('Failed to ensure price data class', error)
-            res.status(500).send({ error: error.message || 'Unable to ensure price data schema' })
+            console.error('Failed to ensure canonical priceData class', error)
+            res.status(500).send({ error: error.message || 'Unable to ensure canonical priceData class' })
         }
     })
 
     app.post('/api/price-data/ensure-field', async (req, res) => {
         try {
-            const symbol = req.body?.symbol
-            if (!symbol || typeof symbol !== 'string') return res.status(400).send({ error: 'Missing symbol' })
-            const safeSymbol = symbol.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_')
-            if (!safeSymbol) return res.status(400).send({ error: 'Invalid symbol' })
-            const fieldName = safeSymbol
-
             const existingSchemas = await ParseNode.Schema.all()
             const priceSchema = existingSchemas.find((s) => s.className === 'priceData')
 
             if (!priceSchema) {
-                // create priceData class with pointer to user and add array field
                 const schema = new ParseNode.Schema('priceData')
                 schema.addPointer('user', '_User')
-                schema.addArray(fieldName)
+                schema.addString('symbol')
+                schema.addArray('days')
                 await schema.save()
-                console.log(' -> Created priceData class with field', fieldName)
+                console.log(' -> Created canonical priceData class with default fields')
             } else {
-                // if the field does not exist, add it
-                if (!priceSchema.fields || !priceSchema.fields[fieldName]) {
+                if (!priceSchema.fields || !priceSchema.fields['symbol']) {
                     const schema = new ParseNode.Schema('priceData')
-                    try {
-                        await schema.get()
-                    } catch (err) {
-                        // ignore; we'll attempt to save
-                    }
-                    try {
-                        schema.addArray(fieldName)
-                        // Prefer update when possible
-                        if (priceSchema) await schema.update()
-                        else await schema.save()
-                        console.log(' -> Added array field to priceData:', fieldName)
-                    } catch (err) {
-                        try {
-                            await schema.save()
-                        } catch (e) {
-                            console.warn(' -> Failed to add field via save/update', e.message || e)
-                        }
-                    }
+                    try { await schema.get() } catch (e) {}
+                    schema.addString('symbol')
+                    await schema.update()
+                }
+                if (!priceSchema.fields || !priceSchema.fields['days']) {
+                    const schema = new ParseNode.Schema('priceData')
+                    try { await schema.get() } catch (e) {}
+                    schema.addArray('days')
+                    await schema.update()
                 }
             }
 
-            res.status(200).send({ fieldName })
+            res.status(200).send({ className: 'priceData' })
         } catch (error) {
-            console.error('Failed to ensure priceData field', error)
-            res.status(500).send({ error: error.message || 'Unable to ensure priceData field' })
+            console.error('Failed to ensure canonical priceData field', error)
+            res.status(500).send({ error: error.message || 'Unable to ensure canonical priceData field' })
         }
     })
 
@@ -342,35 +319,27 @@ const setupApiRoutes = (app) => {
                 schema.addString('symbol')
                 schema.addArray('days')
                 await schema.save()
-                console.log(' -> Created priceData class with days array')
+                console.log(' -> Created canonical priceData structure')
             } else {
                 if (!priceSchema.fields || !priceSchema.fields['days']) {
                     const schema = new ParseNode.Schema('priceData')
                     try { await schema.get() } catch (e) {}
-                    try {
-                        schema.addArray('days')
-                        await schema.update()
-                        console.log(' -> Added days array to priceData')
-                    } catch (err) {
-                        try { await schema.save() } catch (e) { console.warn(' -> Failed to add days field', e.message || e) }
-                    }
+                    schema.addArray('days')
+                    await schema.update()
+                    console.log(' -> Added days array to priceData')
                 }
                 if (!priceSchema.fields || !priceSchema.fields['symbol']) {
                     const schema = new ParseNode.Schema('priceData')
                     try { await schema.get() } catch (e) {}
-                    try {
-                        schema.addString('symbol')
-                        await schema.update()
-                        console.log(' -> Added symbol field to priceData')
-                    } catch (err) {
-                        try { await schema.save() } catch (e) { console.warn(' -> Failed to add symbol field', e.message || e) }
-                    }
+                    schema.addString('symbol')
+                    await schema.update()
+                    console.log(' -> Added symbol field to priceData')
                 }
             }
-            res.status(200).send({ ok: true })
+            res.status(200).send({ ok: true, className: 'priceData' })
         } catch (error) {
-            console.error('Failed to ensure priceData structure', error)
-            res.status(500).send({ error: error.message || 'Unable to ensure priceData structure' })
+            console.error('Failed to ensure canonical priceData structure', error)
+            res.status(500).send({ error: error.message || 'Unable to ensure canonical priceData structure' })
         }
     })
 
