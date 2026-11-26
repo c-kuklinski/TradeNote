@@ -1,4 +1,3 @@
-import axios from 'axios'
 import Parse from 'parse/dist/parse.min.js'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc.js'
@@ -12,23 +11,9 @@ const getSafeSymbol = (symbol) => {
     return symbol.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_')
 }
 
-const getPriceFieldName = (symbol) => {
-    const safe = getSafeSymbol(symbol)
-    return safe || ''
-}
-
-const ensurePriceDataField = async (symbol) => {
-    const safe = getSafeSymbol(symbol)
-    if (!safe) return
-    try {
-        if (safe === 'DAYS') {
-            await axios.post('/api/price-data/ensure-structure')
-        } else {
-            await axios.post('/api/price-data/ensure-field', { symbol: safe })
-        }
-    } catch (error) {
-        console.warn('Unable to ensure priceData field for', safe, error?.message || error)
-    }
+const ensurePriceDataField = async () => {
+    // Schema creation is handled by the canonical priceData model and no longer requires
+    // legacy per-symbol schema maintenance.
 }
 
 const buildPriceElement = (symbol, candle, options) => {
@@ -78,8 +63,8 @@ export async function useSavePriceData(symbol, ohlcv, options = {}) {
 
     const timeframe = options.timeframe || '1m'
 
-    // ensure the priceData schema has the per-symbol/day structure
-    try { await ensurePriceDataField('days') } catch (e) { /* ignore */ }
+    // Schema is managed through the canonical priceData structure only.
+    await ensurePriceDataField()
 
     // Group incoming candles by day (dateUnixDay)
     const grouped = {}
@@ -178,8 +163,7 @@ export async function useGetPriceData(symbol, startUnix, endUnix, limit = 10000,
         return arr.slice(0, limit)
     }
 
-    // Fallback to legacy per-candle entries
-    console.log(`[useGetPriceData] Data not found in days structure, falling back to legacy query for symbol="${symbol}", timeframe="${timeframe}", startUnix=${startUnix}, endUnix=${endUnix}`)
+    console.log(`[useGetPriceData] Data not found in days structure for symbol="${symbol}", timeframe="${timeframe}", startUnix=${startUnix}, endUnix=${endUnix}`)
     const DatabaseObj = Parse.Object.extend(PRICE_DATA_CLASS)
     const DatabaseQuery = new Parse.Query(DatabaseObj)
     DatabaseQuery.equalTo('user', currentUser)
